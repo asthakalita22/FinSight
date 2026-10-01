@@ -1,0 +1,11 @@
+# FinSight theme (off-white / black / muted yellow)
+[theme]
+base = "light"
+primaryColor = "#D9B84C"
+backgroundColor = "#F8F8F5"
+secondaryBackgroundColor = "#EDEDE6"
+textColor = "#111111"
+font = "sans serif"
+
+[server]
+headless = true

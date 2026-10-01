@@ -1,0 +1,24 @@
+# FinSight - Docker Compose
+# Phase 0/1: PostgreSQL only. The backend service is added in Phase 6.
+services:
+  postgres:
+    image: postgres:16
+    container_name: finsight_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finsight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finsight_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-finsight}
+    ports:
+      # host port -> container port
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - finsight_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finsight} -d ${POSTGRES_DB:-finsight}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  finsight_pgdata:

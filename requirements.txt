@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+streamlit
+plotly
+pandas
+numpy
+scikit-learn
+sqlalchemy
+psycopg2-binary
+pydantic
+python-dotenv
+requests
+pytest

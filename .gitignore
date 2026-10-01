@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+.idea/
+.vscode/
+# generated data (re-create with: python data/generate_data.py)
+data/raw/*.csv
+data/processed/*.csv
+ml/model.pkl
+
+.pytest_cache/
+data/processed/*.json
