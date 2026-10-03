@@ -161,14 +161,23 @@ st.caption("Read-only review view. Severity, status, category and exposure are s
 available_categories = sorted(categories["category"].dropna().astype(str).unique().tolist()) if not categories.empty and "category" in categories.columns else []
 severity_options = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 status_options = ["OPEN", "IN_REVIEW", "RESOLVED", "IGNORED"]
+STATUS_LABELS = {
+    "OPEN": "Open",
+    "IN_REVIEW": "In review",
+    "RESOLVED": "Resolved",
+    "IGNORED": "Ignored",
+}
+CATEGORY_LABELS = {value: value.replace("_", " ").title() for value in available_categories}
 
 c1, c2, c3, c4 = st.columns([1.1, 1.1, 1.8, 0.8])
 with c1:
     selected_severity = st.multiselect("Severity", severity_options, default=[])
 with c2:
-    selected_status = st.multiselect("Status", status_options, default=["OPEN", "IN_REVIEW"])
+    selected_status_labels = st.multiselect("Status", [STATUS_LABELS[s] for s in status_options], default=[STATUS_LABELS["OPEN"], STATUS_LABELS["IN_REVIEW"]])
+    selected_status = [code for code, label in STATUS_LABELS.items() if label in selected_status_labels]
 with c3:
-    selected_category = st.multiselect("Category", available_categories, default=[])
+    selected_category_labels = st.multiselect("Category", [CATEGORY_LABELS[c] for c in available_categories], default=[])
+    selected_category = [code for code, label in CATEGORY_LABELS.items() if label in selected_category_labels]
 with c4:
     limit = st.selectbox("Rows", [100, 250, 500], index=1)
 
@@ -180,6 +189,10 @@ except APIError as exc:
 
 if not recent.empty:
     display = recent.copy()
+    if "status" in display.columns:
+        display["status"] = display["status"].map(lambda value: STATUS_LABELS.get(str(value), str(value).replace("_", " ").title()))
+    if "category" in display.columns:
+        display["category"] = display["category"].map(lambda value: CATEGORY_LABELS.get(str(value), str(value).replace("_", " ").title()))
     rename = {
         "exception_code": "Exception",
         "transaction_id": "Transaction ID",

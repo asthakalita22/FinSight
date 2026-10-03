@@ -55,6 +55,19 @@ def _money(value: Any) -> str:
     return f"₹{float(value) / 1_000_000:,.1f}M"
 
 
+STATUS_LABELS = {
+    "AMOUNT_MISMATCH": "Amount mismatch",
+    "CURRENCY_MISMATCH": "Currency mismatch",
+    "BUSINESS_UNIT_MISMATCH": "Business-unit mismatch",
+    "DATE_MISMATCH": "Date mismatch",
+    "MISSING_IN_LEDGER": "Missing in ledger",
+    "MISSING_IN_SOURCE": "Missing in source",
+    "DUPLICATE": "Duplicate",
+    "INVALID": "Invalid",
+    "MATCHED": "Matched",
+}
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def load_summary() -> dict[str, Any]:
     client = get_api_client()
@@ -108,11 +121,16 @@ st.divider()
 
 chart_col, bu_col = st.columns(2, gap="large")
 with chart_col:
-    st.subheader("Daily Reconciliation")
+    st.subheader("Monthly Reconciliation")
     if not daily.empty and "date" in daily.columns:
         series_candidates = [c for c in ["matched", "mismatched", "missing", "duplicates", "invalid"] if c in daily.columns]
         if series_candidates:
             chart_df = daily[["date", *series_candidates]].copy()
+            chart_df["date"] = pd.to_datetime(chart_df["date"], errors="coerce")
+            chart_df = chart_df.dropna(subset=["date"])
+            chart_df["period"] = chart_df["date"].dt.to_period("M").dt.to_timestamp()
+            chart_df = chart_df.groupby("period", as_index=False)[series_candidates].sum()
+            chart_df = chart_df.rename(columns={"period": "date"})
             rename = {c: c.replace("_", " ").title() for c in series_candidates}
             chart_df = chart_df.rename(columns=rename)
             fig = line_chart(chart_df, "date", list(rename.values()))
@@ -165,7 +183,8 @@ status_options = [
 ]
 filter_col, limit_col = st.columns([3, 1])
 with filter_col:
-    selected_statuses = st.multiselect("Status", status_options, default=[s for s in status_options if s != "MATCHED"])
+    selected_status_labels = st.multiselect("Status", [STATUS_LABELS[s] for s in status_options], default=[STATUS_LABELS[s] for s in status_options if s != "MATCHED"])
+selected_statuses = [code for code, label in STATUS_LABELS.items() if label in selected_status_labels]
 with limit_col:
     limit = st.selectbox("Rows", [100, 250, 500], index=1)
 
@@ -177,6 +196,8 @@ except APIError as exc:
 
 if not details.empty:
     display = details.copy()
+    if "status" in display.columns:
+        display["status"] = display["status"].map(lambda value: STATUS_LABELS.get(str(value), str(value).replace("_", " ").title()))
     rename = {
         "transaction_id": "Transaction ID",
         "business_unit": "Business Unit",
