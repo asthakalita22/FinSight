@@ -400,6 +400,43 @@ ANOMALY_FEATURE_SET=standard    # standard | onehot | compact
 * `ml/model.pkl` is a joblib/pickle file: **only load model files you created yourself.** It is git-ignored.
 * `detected_at` is a simulated detection time (18:00 the day after the transaction), as for control exceptions.
 
+## Phase 7 — Streamlit Foundation
+
+Phase 7 establishes the polished Streamlit application shell without implementing the business dashboards yet. It adds the shared institutional-finance visual system, reusable KPI/chart/table components, a read-only FastAPI client, API health states, and the planned multipage navigation structure.
+
+### Frontend structure
+
+```text
+frontend/
+├── app.py
+├── components/
+│   ├── charts.py
+│   ├── kpis.py
+│   ├── styles.py
+│   └── tables.py
+├── pages/
+│   ├── 01_Overview.py
+│   ├── 02_Financial_Performance.py
+│   ├── 03_Reconciliation.py
+│   ├── 04_Exceptions.py
+│   ├── 05_Risk_Anomalies.py
+│   ├── 06_Liquidity.py
+│   └── 07_Reports.py
+└── services/
+    └── api_client.py
+```
+
+The shell intentionally does not duplicate finance calculations. Phase 8 implements the executive dashboard, followed by reconciliation/exception and remaining dashboard pages.
+
+### Running Phase 7
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+streamlit run frontend/app.py
+```
+
+See `docs/PHASE7_IMPLEMENTATION.md` for the phase boundary and implementation details.
+
 ## Phase 6 — FastAPI
 
 Phase 6 exposes the validated analytics through a **read-only REST API**. The API
