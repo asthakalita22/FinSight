@@ -11,6 +11,7 @@ import streamlit as st
 from sqlalchemy import text
 
 from backend.database import engine
+from backend.services import anomaly_service as anomaly_svc
 from backend.services import liquidity_service as liquidity
 from backend.services import pnl_service as pnl_svc
 
@@ -28,11 +29,11 @@ st.markdown(
 )
 
 st.title("FinSight")
-st.markdown('<p class="fs-sub">Financial Control Center · Phase 4 status page</p>', unsafe_allow_html=True)
+st.markdown('<p class="fs-sub">Financial Control Center · Phase 5 status page</p>', unsafe_allow_html=True)
 
 TABLES = [
     "business_units", "fx_rates", "liquidity_targets", "transactions", "ledger_entries", "budgets",
-    "pnl", "cash_flows", "reconciliations", "exceptions", "anomalies",
+    "pnl", "cash_flows", "reconciliations", "exceptions", "anomaly_scores", "anomalies",
 ]
 
 try:
@@ -76,6 +77,20 @@ try:
         cols[5].metric("Invalid", f"{int(r['invalid']):,}")
     else:
         st.info("No reconciliation yet. Run:  python automation/pipeline.py")
+
+    if int(df.loc[df["table"] == "anomalies", "rows"].iloc[0]):
+        st.subheader("Anomaly detection (Isolation Forest)")
+        a = anomaly_svc.summary(engine)
+        run = anomaly_svc.latest_run(engine)
+        c = st.columns(4)
+        c[0].metric("Anomalies flagged", f"{a['anomalies']:,}", f"{a['anomaly_rate_pct']}% of {a['scored']:,} scored")
+        c[1].metric("High risk", f"{a['high']:,}", f"{a['medium']:,} medium / {a['low']:,} low", delta_color="off")
+        c[2].metric("Value flagged", f"₹{a['exposure_inr'] / 1e6:,.0f}M", f"₹{a['high_risk_exposure_inr'] / 1e6:,.0f}M high risk", delta_color="off")
+        c[3].metric("Model", run["model_version"], f"feature set: {run['feature_set']}", delta_color="off")
+        top = anomaly_svc.top_anomalies(engine, n=5, order_by="score")
+        st.caption("Highest-scoring anomalies, with the model's explanation")
+        st.dataframe(top[["transaction_id", "business_unit", "transaction_type", "amount_inr", "anomaly_score", "risk_level", "reasons"]],
+                     width="stretch", hide_index=True)
 
     exc_rows = int(df.loc[df["table"] == "exceptions", "rows"].iloc[0])
     if exc_rows:

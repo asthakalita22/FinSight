@@ -241,3 +241,67 @@ SELECT business_unit,
 FROM v_liquidity_position
 GROUP BY business_unit
 ORDER BY shortfall_days DESC, peak_funding_m DESC;
+
+-- =====================================================================
+-- Phase 5: anomaly detection (Isolation Forest)
+-- =====================================================================
+
+-- 28. The headline numbers (rate = anomalies / transactions scored)
+SELECT * FROM v_anomaly_summary;
+
+-- 29. The model run behind them: thresholds, what was left out and why
+SELECT model_version, feature_set, transactions_scored, anomalies_flagged,
+       threshold_flag, threshold_medium, threshold_high, excluded
+FROM model_runs ORDER BY id DESC LIMIT 1;
+
+-- 30. The 15 highest-scoring anomalies WITH the model's explanation
+SELECT transaction_id, business_unit, transaction_type, ROUND(amount_inr) AS amount_inr,
+       anomaly_score, risk_level, reasons
+FROM v_anomaly_detail
+ORDER BY anomaly_score DESC
+LIMIT 15;
+
+-- 31. Anomaly rate by business unit (a fair model keeps these close together)
+SELECT bu.name AS business_unit,
+       COUNT(*)                                        AS scored,
+       COUNT(a.id)                                     AS anomalies,
+       ROUND(100.0 * COUNT(a.id) / COUNT(*), 2)        AS rate_pct,
+       COUNT(*) FILTER (WHERE a.risk_level = 'HIGH')   AS high
+FROM anomaly_scores s
+JOIN business_units bu ON bu.id = s.business_unit_id
+LEFT JOIN anomalies a ON a.source_row_id = s.source_row_id
+GROUP BY bu.name
+ORDER BY rate_pct DESC;
+
+-- 32. Anomalies per month by risk level
+SELECT to_char(transaction_date, 'YYYY-MM') AS month,
+       COUNT(*) FILTER (WHERE risk_level = 'HIGH')   AS high,
+       COUNT(*) FILTER (WHERE risk_level = 'MEDIUM') AS medium,
+       COUNT(*) FILTER (WHERE risk_level = 'LOW')    AS low,
+       ROUND(SUM(ABS(amount_inr)) / 1e6, 1)          AS value_inr_m
+FROM anomalies
+GROUP BY 1
+ORDER BY 1;
+
+-- 33. Anomalies that happened outside normal hours
+SELECT EXTRACT(hour FROM transaction_date)::int AS hour, COUNT(*) AS anomalies,
+       COUNT(*) FILTER (WHERE risk_level = 'HIGH') AS high
+FROM anomalies
+GROUP BY 1
+ORDER BY 1;
+
+-- 34. Transactions that are BOTH an anomaly and a reconciliation break (the ones to look at first)
+SELECT a.transaction_id, a.risk_level, r.status AS reconciliation_status, ROUND(a.amount_inr) AS amount_inr,
+       LEFT(a.reasons, 70) AS reason
+FROM anomalies a
+JOIN reconciliations r ON r.source_row_id = a.source_row_id
+WHERE r.status <> 'MATCHED'
+ORDER BY a.anomaly_score DESC
+LIMIT 15;
+
+-- 35. Anomalies that also triggered a control exception
+SELECT e.exception_code, e.category, COUNT(*) AS anomalies, ROUND(SUM(ABS(a.amount_inr)) / 1e6, 1) AS value_inr_m
+FROM anomalies a
+JOIN exceptions e ON e.transaction_id = a.transaction_id
+GROUP BY 1, 2
+ORDER BY anomalies DESC;

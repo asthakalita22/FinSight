@@ -27,6 +27,13 @@ class Settings:
     # Source vs ledger amounts within this absolute tolerance count as equal
     amount_tolerance: float = float(os.getenv("CONTROL_AMOUNT_TOLERANCE", "0.01"))
 
+    # ---- anomaly detection (Phase 5) ------------------------------------
+    # Share of transactions flagged as anomalies (the top N% by anomaly score). A review-capacity decision.
+    anomaly_contamination: float = float(os.getenv("ANOMALY_CONTAMINATION", "0.01"))
+    anomaly_feature_set: str = os.getenv("ANOMALY_FEATURE_SET", "standard")      # standard | onehot | compact
+    anomaly_trees: int = int(os.getenv("ANOMALY_TREES", "300"))
+    anomaly_max_samples: int = int(os.getenv("ANOMALY_MAX_SAMPLES", "2048"))
+
     # ---- reconciliation (Phase 3) ---------------------------------------
     # A ledger entry may post 0..N calendar days AFTER the transaction date and still match.
     # The data posts 0-2 business days later, i.e. up to 4 calendar days across a weekend.

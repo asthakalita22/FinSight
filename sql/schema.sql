@@ -11,6 +11,8 @@
 -- =====================================================================
 
 DROP VIEW  IF EXISTS v_financial_performance CASCADE;
+DROP VIEW  IF EXISTS v_anomaly_detail CASCADE;
+DROP VIEW  IF EXISTS v_anomaly_summary CASCADE;
 DROP VIEW  IF EXISTS v_pnl_daily CASCADE;
 DROP VIEW  IF EXISTS v_pnl_monthly_trend CASCADE;
 DROP VIEW  IF EXISTS v_pnl_quarterly CASCADE;
@@ -23,6 +25,8 @@ DROP VIEW  IF EXISTS v_exception_summary CASCADE;
 DROP VIEW  IF EXISTS v_liquidity_summary CASCADE;
 
 DROP TABLE IF EXISTS anomalies        CASCADE;
+DROP TABLE IF EXISTS anomaly_scores   CASCADE;
+DROP TABLE IF EXISTS model_runs       CASCADE;
 DROP TABLE IF EXISTS exceptions       CASCADE;
 DROP TABLE IF EXISTS reconciliations  CASCADE;
 DROP TABLE IF EXISTS cash_flows       CASCADE;
@@ -142,7 +146,7 @@ CREATE TABLE cash_flows (
 );
 
 -- ---------------------------------------------------------------------
--- Output tables (filled by the reconciliation engine, control engine and ML model)
+-- Output tables (filled by the reconciliation engine, control engine and anomaly model)
 -- ---------------------------------------------------------------------
 CREATE TABLE reconciliations (
     id                BIGSERIAL PRIMARY KEY,
@@ -186,14 +190,46 @@ CREATE TABLE exceptions (
     UNIQUE (exception_code, source_ref)
 );
 
+-- One row per transaction the model scored (the "population"): needed for anomaly RATES by business unit / date,
+-- and for the score distribution.
+CREATE TABLE anomaly_scores (
+    source_row_id     BIGINT PRIMARY KEY REFERENCES transactions(id),
+    business_unit_id  INTEGER NOT NULL REFERENCES business_units(id),   -- recovered from the ledger when the source lost it
+    txn_date          DATE    NOT NULL,
+    anomaly_score     NUMERIC(8,4) NOT NULL
+);
+
+-- Only the FLAGGED transactions (score >= the model's threshold).
 CREATE TABLE anomalies (
-    id              BIGSERIAL PRIMARY KEY,
-    transaction_id  VARCHAR(30) NOT NULL,
-    anomaly_score   NUMERIC(8,4) NOT NULL,
-    risk_level      VARCHAR(10) NOT NULL
+    id                BIGSERIAL PRIMARY KEY,
+    transaction_id    VARCHAR(30) NOT NULL,
+    anomaly_score     NUMERIC(8,4) NOT NULL,             -- Isolation Forest score in (0,1); higher = more anomalous
+    risk_level        VARCHAR(10) NOT NULL
         CHECK (risk_level IN ('LOW','MEDIUM','HIGH')),
-    model_version   VARCHAR(30) NOT NULL,
-    detected_at     TIMESTAMP NOT NULL DEFAULT now()
+    model_version     VARCHAR(40) NOT NULL,
+    detected_at       TIMESTAMP NOT NULL DEFAULT now(),
+    -- extras: drill-down without joins, and explainability
+    source_row_id     BIGINT UNIQUE REFERENCES transactions(id),
+    business_unit_id  INTEGER REFERENCES business_units(id),
+    transaction_date  TIMESTAMP,
+    amount_inr        NUMERIC(18,2),
+    reasons           TEXT                                -- plain-English explanation
+);
+
+-- One row per training / scoring run (audit trail + the numbers behind the thresholds).
+CREATE TABLE model_runs (
+    id                      BIGSERIAL PRIMARY KEY,
+    model_version           VARCHAR(40) NOT NULL,
+    feature_set             VARCHAR(20) NOT NULL,
+    run_at                  TIMESTAMP NOT NULL,
+    transactions_scored     INTEGER NOT NULL,
+    anomalies_flagged       INTEGER NOT NULL,
+    contamination           NUMERIC(6,4) NOT NULL,
+    threshold_flag          NUMERIC(8,5) NOT NULL,        -- score >= this  -> LOW risk (flagged)
+    threshold_medium        NUMERIC(8,5) NOT NULL,        -- score >= this  -> MEDIUM
+    threshold_high          NUMERIC(8,5) NOT NULL,        -- score >= this  -> HIGH
+    features                TEXT NOT NULL,
+    excluded                JSONB NOT NULL                -- what was not scored, and why
 );
 
 -- ---------------------------------------------------------------------
@@ -230,3 +266,6 @@ CREATE INDEX idx_exc_bu          ON exceptions (business_unit_id);
 
 CREATE INDEX idx_anom_txn        ON anomalies (transaction_id);
 CREATE INDEX idx_anom_risk       ON anomalies (risk_level);
+CREATE INDEX idx_anom_bu         ON anomalies (business_unit_id);
+CREATE INDEX idx_anom_txn_date   ON anomalies (transaction_date);
+CREATE INDEX idx_scores_bu_date  ON anomaly_scores (business_unit_id, txn_date);

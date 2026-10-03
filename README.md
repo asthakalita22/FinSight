@@ -1,19 +1,20 @@
 # FinSight — AI-Powered Financial Reporting, Reconciliation & Risk Analytics
 
-> **Status: Phases 0–4 complete** — skeleton, PostgreSQL + synthetic data, ETL pipeline, control engine, reconciliation engine, financial analytics.
+> **Status: Phases 0–5 complete** — skeleton, PostgreSQL + synthetic data, ETL pipeline, control engine, reconciliation engine, financial analytics, ML anomaly detection.
 
-Later phases (ML anomaly detection, FastAPI, Streamlit, Power BI) build on this foundation.
+Later phases (FastAPI, Streamlit, Power BI, AI commentary, automation) build on this foundation.
 
 ## What exists so far
 
 | Phase | What you get |
 |---|---|
-| 0 / 1 | Docker PostgreSQL 16 · 11 tables · FKs, CHECKs, 25 indexes, 11 views · synthetic generator (~150k transactions, 12 months, 8 business units, 5 currencies) with injected data problems and an answer key |
+| 0 / 1 | Docker PostgreSQL 16 · 13 tables · FKs, CHECKs, 28 indexes, 13 views · synthetic generator (~150k transactions, 12 months, 8 business units, 5 currencies) with injected data problems and an answer key |
 | 2 | ETL (extract → validate → transform → load) · control engine with **9 rules** · exceptions with severity, owner, status · one-command pipeline |
 | 3 | Reconciliation engine: source vs ledger on ID, currency, amount, business unit and date · **9 statuses** · metrics + match rate · 3 views · cross-checked against the control engine |
 | 4 | Financial analytics: P&L, budget variance, MoM / QoQ trends, business-unit and product breakdowns, liquidity gap and funding requirement · `pnl_service` + `liquidity_service` · terminal finance report · 6 SQL views · validated against independent SQL and the raw transactions |
+| 5 | Anomaly detection: Isolation Forest over cleaned transactions · anomaly score, flag and **HIGH / MEDIUM / LOW** risk · plain-English **explanation** for every anomaly · saved model (`ml/model.pkl`) · measured against the answer key |
 
-Verification: 22 + 23 + 38 + 48 automated checks and 71 unit tests.
+Verification: 22 + 23 + 38 + 48 + 53 = 184 automated checks and 86 unit tests.
 
 ## Quick start (after installing Docker Desktop + Python 3.12)
 
@@ -31,8 +32,10 @@ python data/verify_phase1.py     # expect: 22/22 checks passed
 python data/verify_phase2.py     # expect: 23/23 checks passed
 python data/verify_phase3.py     # expect: 38/38 checks passed
 python data/verify_phase4.py     # expect: 48/48 checks passed
-python -m pytest                 # expect: 71 passed
+python data/verify_phase5.py     # expect: 53/53 checks passed
+python -m pytest                 # expect: 86 passed
 python automation/finance_report.py    # read the Phase 4 analytics in the terminal
+python automation/anomaly_report.py    # read the Phase 5 anomalies (with explanations) in the terminal
 ```
 
 Optional:
@@ -55,12 +58,15 @@ python automation/pipeline.py                    # full run
 python automation/pipeline.py --generate         # force new CSV data first
 python automation/pipeline.py --recon-only       # re-run only the reconciliation on what is in the DB
 python automation/pipeline.py --controls-only    # re-run only the controls on what is in the DB
+python automation/pipeline.py --ml-only          # re-train and re-score the anomaly model on what is in the DB
+python automation/pipeline.py --ml-only --no-retrain   # re-score with the saved ml/model.pkl (no training)
+python automation/pipeline.py --skip-ml          # everything except the anomaly model
 python automation/pipeline.py --no-workflow-sim  # leave every exception OPEN
 ```
 
-The ETL step **rebuilds the database**. The reconciliation step **replaces** the `reconciliations` table (it is fully derived). The controls step is **idempotent** (see below).
+The ETL step **rebuilds the database**. The reconciliation step **replaces** the `reconciliations` table (it is fully derived). The controls step is **idempotent** (see below). The anomaly step **replaces** `anomaly_scores` and `anomalies` and **appends** a row to `model_runs`.
 
-> **Upgrading from an earlier phase?** The schema and CSV files changed, so run `python automation/pipeline.py --generate` once (the full pipeline, not `--recon-only`). The same seed regenerates identical data.
+> **Upgrading from an earlier phase?** The schema changed, so run the *full* `python automation/pipeline.py` once (not `--recon-only` / `--ml-only`). The same seed regenerates identical data.
 
 ## Database connection details (DBeaver / pgAdmin / Power BI later)
 
@@ -88,7 +94,7 @@ business_units (id, name, division, region)      fx_rates (currency, name, rate_
       └── anomalies         (filled in Phase 5)
 ```
 
-Views: `v_pnl_daily`, `v_pnl_monthly_trend`, `v_pnl_quarterly`, `v_pnl_by_product`, `v_financial_performance`, `v_liquidity_position`, `v_liquidity_summary`, `v_reconciliation_summary`, `v_reconciliation_by_bu`, `v_reconciliation_daily`, `v_exception_summary`.
+Views: `v_pnl_daily`, `v_pnl_monthly_trend`, `v_pnl_quarterly`, `v_pnl_by_product`, `v_financial_performance`, `v_liquidity_position`, `v_liquidity_summary`, `v_reconciliation_summary`, `v_reconciliation_by_bu`, `v_reconciliation_daily`, `v_exception_summary`, `v_anomaly_summary`, `v_anomaly_detail`.
 
 ### Design decisions worth knowing
 
@@ -289,6 +295,109 @@ python automation/finance_report.py --month 2026-03 --bu Equities --bu Derivativ
 python automation/finance_report.py --start 2026-01-15 --end 2026-02-10 --product Equity
 ```
 
+## Phase 5 — Anomaly detection
+
+An **Isolation Forest** (scikit-learn): unsupervised, so it never sees a fraud label. It learns what ordinary transactions look like and scores how *easy a transaction is to isolate* with random splits — few splits needed means unusual. Code: `ml/anomaly_detection.py` (pure ML) and `backend/services/anomaly_service.py` (database + queries).
+
+```
+transactions + ledger ──> clean ──> features ──> Isolation Forest ──> score ──> flag ──> risk level ──> explain ──> PostgreSQL
+                                                       └──> ml/model.pkl (forest + thresholds + group statistics)
+```
+
+### What is scored (and what is not)
+
+149,450 of 152,250 transactions. The control engine already owns the rest, so the model does not re-flag them: **250** with no transaction ID (CTL-001), **2,250** extra duplicate copies (CTL-002), **300** with an invalid amount (CTL-003). Business unit and INR amount that the source system lost are **recovered from the ledger**. The model run records exactly what was left out (`model_runs.excluded`) and the verifier proves `scored + left out = all transactions`.
+
+### Output
+
+| Field | Meaning |
+|---|---|
+| `anomaly_score` | Isolation Forest score in (0, 1). ~0.5 = nothing stands out; higher = more isolated. |
+| flagged (`anomalies` table) | score ≥ the (1 − `ANOMALY_CONTAMINATION`) quantile of the training scores — **the top 1%** by default |
+| `risk_level` | tail bands of the training scores: **LOW** = top 1%, **MEDIUM** = top 0.5%, **HIGH** = top 0.1% |
+| `reasons` | plain-English explanation, e.g. *"Amount INR 4.82M is 14.2x the typical Equities REVENUE transaction (median INR 0.34M); Booked at 02:14, outside the normal 08:00-17:59 window (only 0.00% of transactions occur at this hour)"* |
+
+Thresholds are learned at training time and **saved with the model**, so scoring new data uses the *same* cut-offs (the anomaly rate can then rise or fall, which is what you want to monitor). `anomaly_scores` keeps the score of every scored transaction (needed for anomaly **rates** by business unit / date, and the score distribution).
+
+### Features (the spec's list)
+
+| Feature | Definition |
+|---|---|
+| `amount_log` | log(1 + \|amount in INR\|) — INR so currencies are comparable |
+| `amount_deviation` | robust z-score of the amount inside its **business-unit × transaction-type** group — "how far from this group's historical average" |
+| `hour`, `day_of_month` | from the transaction timestamp |
+| `transaction_frequency` | how busy today is for **this business unit** versus its own normal day (robust z-score of the square-root daily count) |
+| business unit | enters through the two group-relative features above |
+| historical average | the group median behind `amount_deviation`; also used in the explanations |
+
+No scaling is applied: Isolation Forest picks split points uniformly inside each feature's range, so it is invariant to monotonic rescaling.
+
+### Two model-design findings (both caught by measurement, both now regression-tested)
+
+1. **One-hot business-unit dummies make small units look anomalous.** Isolation Forest isolates rare binary features easily, so Treasury and Investment Banking (8% of volume each) were flagged **~3× as often** as large units (per-unit flag rates 0.64%–2.20%, spread 1.56 points). The default has no dummies — business unit enters through group-relative features — and the spread is **0.50 points** (0.79%–1.29%). The literal spec reading is still available as `ANOMALY_FEATURE_SET=onehot`. No labels were needed to find this: it is a *fairness* check.
+2. **A raw daily transaction count has the same flaw** (a small unit's every day looks "quiet"), and a small unit's near-Poisson counts are skewed. The frequency feature is therefore relative to each unit's own normal day, on a square-root (variance-stabilising) scale.
+
+### Feature profiles (`ANOMALY_FEATURE_SET` in `.env`)
+
+| Profile | Inputs | ROC-AUC | Recall @ top 1% | Per-unit flag-rate spread |
+|---|---|---|---|---|
+| `standard` (default) | amount_log, amount_deviation, hour, day_of_month, transaction_frequency | 0.980 | 78% | 0.50 pts |
+| `onehot` | standard + business-unit dummies | 0.980 | 76% | 1.56 pts |
+| `compact` | amount_log, amount_deviation, hour | 0.986 | 84.5% | 0.42 pts |
+
+**Read the ablation honestly.** In a 4-seed experiment, leaner feature sets scored better on every seed (a 2-feature model reached average precision 0.85 vs 0.66 for the full list) because Isolation Forest chooses split features at random, so features carrying no signal dilute those that do. In *this* synthetic data the planted anomalies are defined by amount and hour only; day-of-month and daily volume are independent noise by construction, so `compact` is partly "teaching to the test". On real data day-of-month or volume may well matter, so the default keeps the spec's features and drops only what is redundant by construction (the group-constant `historical_average_log`, already inside `amount_deviation`). **Choose your profile with analyst feedback on your own data.**
+
+### How well does it work? (measured against the generator's answer key — the model never sees it)
+
+| | |
+|---|---|
+| ROC-AUC / average precision | **0.980** / 0.72 (base rate 0.50%) |
+| Flagged (top 1%) | 1,495 — recall **78.4%** (588 of 750 planted unusual transactions), precision 39.3%, **78× lift** over random |
+| **HIGH** tier (150) | **100%** real unusual transactions |
+| MEDIUM tier (598) / LOW tier (747) | 56.9% / 13.1% |
+| Missed (162) | 104 happened in business hours with only a moderate amount — they sit inside the natural heavy tail of normal transactions |
+| Value flagged | ₹894.8 M (₹314.9 M in the HIGH tier) |
+
+Flagging 1% when the true rate is 0.5% guarantees false alarms; that is what the risk tiers are for — **review HIGH first**. The contamination rate is a *review-capacity* decision, not a measurement.
+
+### Explanations you can trust
+
+Every flagged transaction is explained from the same features (amount vs the group's typical amount, rare hour of day, unusual daily volume), strongest signal first. 92% name a concrete signal; the rest say "unusual combination of features". The verifier recomputes **200 random "N× the typical amount" claims independently from the data** (0 wrong) and checks every "Booked at HH:MM" claim against the actual timestamp.
+
+### Using it
+
+```python
+from backend.database import engine
+from backend.services import anomaly_service as anomalies
+from backend.utils.filters import Filters
+
+anomalies.summary(engine, Filters.for_period(quarter="2026-Q1"))   # counts by risk, anomaly rate, value flagged
+anomalies.by_business_unit(engine)                                  # rate per unit
+anomalies.trend(engine, grain="month")                              # scored, anomalies, rate per month
+anomalies.top_anomalies(engine, n=10, order_by="amount")            # highest-value, with explanations
+anomalies.score_histogram(engine)                                   # score distribution
+```
+
+```bash
+python automation/anomaly_report.py                     # summary, by unit, by month, top anomalies with reasons
+python automation/anomaly_report.py --risk HIGH --top 15
+python automation/anomaly_report.py --quarter 2026-Q1 --bu Equities
+```
+
+### Tuning (`.env`)
+
+```
+ANOMALY_CONTAMINATION=0.01      # share flagged (top N% by score)
+ANOMALY_FEATURE_SET=standard    # standard | onehot | compact
+```
+
+### Limits worth knowing
+
+* **Batch scoring.** Group statistics (typical amounts, normal daily volume, hours) are computed over the whole window, and thresholds are fixed at training time. There is no rolling window or drift monitoring yet.
+* The explanations describe *what is unusual*, not *why it happened* — they are triage hints, not conclusions.
+* `ml/model.pkl` is a joblib/pickle file: **only load model files you created yourself.** It is git-ignored.
+* `detected_at` is a simulated detection time (18:00 the day after the transaction), as for control exceptions.
+
 ## Handy commands
 
 ```bash
@@ -312,10 +421,11 @@ python data/generate_data.py --transactions 200000 --seed 7       # different da
 | `ModuleNotFoundError` | The venv is not active (you should see `(.venv)` in the prompt) — activate it and `pip install -r requirements.txt`. |
 | `Missing .../transactions.csv` | Run `python data/generate_data.py` (or just `python automation/pipeline.py`, which generates when needed). |
 | `Missing .../fx_rates.csv` | You have Phase 1 CSVs. Run `python automation/pipeline.py --generate`. |
+| `No module named 'ml'` | Run the scripts from the project folder (`FinSight`), and make sure `ml/__init__.py` exists. |
 | `KeyError: 'liquidity_targets'` or `Missing .../liquidity_targets.csv` | You have CSVs from an earlier phase. Run `python automation/pipeline.py --generate`. |
 | Exceptions table is empty | Run `python automation/pipeline.py` (or `--controls-only`). |
 | `pip install` fails on `psycopg2-binary` | Use Python 3.11 or 3.12 (not 3.14). |
 
 ## Roadmap
 
-~~Phase 2 ETL + controls~~ ✅ → ~~3 Reconciliation~~ ✅ → ~~4 Financial analytics~~ ✅ → 5 ML anomaly detection → 6 FastAPI → 7–10 Streamlit → 11 Power BI → 12 AI commentary → 13 Automation → 14–17 Testing, polish, docs.
+~~Phase 2 ETL + controls~~ ✅ → ~~3 Reconciliation~~ ✅ → ~~4 Financial analytics~~ ✅ → ~~5 ML anomaly detection~~ ✅ → 6 FastAPI → 7–10 Streamlit → 11 Power BI → 12 AI commentary → 13 Automation → 14–17 Testing, polish, docs.

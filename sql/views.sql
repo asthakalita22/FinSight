@@ -168,3 +168,27 @@ SELECT
     COUNT(*) FILTER (WHERE funding_requirement > 0) AS units_in_shortfall
 FROM v_liquidity_position
 GROUP BY date;
+
+-- ---------------------------------------------------------------------
+-- Anomaly views (Phase 5)
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_anomaly_detail AS
+SELECT
+    a.id, a.transaction_id, a.transaction_date, a.detected_at,
+    bu.name AS business_unit, t.product, t.transaction_type, t.currency, t.amount,
+    a.amount_inr, a.anomaly_score, a.risk_level, a.reasons, a.model_version
+FROM anomalies a
+JOIN transactions t        ON t.id  = a.source_row_id
+LEFT JOIN business_units bu ON bu.id = a.business_unit_id;
+
+CREATE OR REPLACE VIEW v_anomaly_summary AS
+SELECT
+    (SELECT transactions_scored FROM model_runs ORDER BY id DESC LIMIT 1)    AS transactions_scored,
+    COUNT(*)                                                                 AS anomalies,
+    COUNT(*) FILTER (WHERE risk_level = 'HIGH')                              AS high_risk,
+    COUNT(*) FILTER (WHERE risk_level = 'MEDIUM')                            AS medium_risk,
+    COUNT(*) FILTER (WHERE risk_level = 'LOW')                               AS low_risk,
+    ROUND(100.0 * COUNT(*) / NULLIF((SELECT transactions_scored FROM model_runs ORDER BY id DESC LIMIT 1), 0), 3) AS anomaly_rate_pct,
+    COALESCE(SUM(ABS(amount_inr)), 0)                                        AS exposure_inr,
+    COALESCE(SUM(ABS(amount_inr)) FILTER (WHERE risk_level = 'HIGH'), 0)     AS high_risk_exposure_inr
+FROM anomalies;
