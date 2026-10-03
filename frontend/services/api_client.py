@@ -25,7 +25,7 @@ class APIError(RuntimeError):
 class FinSightAPI:
     """Read-only client for the FinSight API."""
 
-    def __init__(self, base_url: str = "http://localhost:8000", timeout: float = 10.0) -> None:
+    def __init__(self, base_url: str = "http://localhost:8001", timeout: float = 10.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
@@ -56,6 +56,6 @@ class FinSightAPI:
 
 
 @lru_cache(maxsize=1)
-def get_api_client(base_url: str = "http://localhost:8000") -> FinSightAPI:
+def get_api_client(base_url: str = "http://localhost:8001") -> FinSightAPI:
     """Return one cached API client for the Streamlit process."""
     return FinSightAPI(base_url=base_url)

@@ -103,6 +103,14 @@ def inject_global_styles() -> None:
             background: rgba(255,255,255,0.55);
         }}
         .fs-muted {{ color: var(--fs-slate); }}
+        .fs-risk-bars {{ margin-top: 0.7rem; }}
+        .fs-risk-row {{ display: grid; grid-template-columns: 3.6rem 1fr 3.2rem; align-items: center; gap: 0.55rem; margin: 0.55rem 0; color: var(--fs-slate); font-size: 0.82rem; }}
+        .fs-risk-row strong {{ color: var(--fs-black); text-align: right; font-weight: 650; }}
+        .fs-risk-track {{ height: 0.45rem; background: var(--fs-border); border-radius: 999px; overflow: hidden; }}
+        .fs-risk-fill {{ height: 100%; border-radius: 999px; }}
+        .fs-risk-high {{ background: var(--fs-red); }}
+        .fs-risk-medium {{ background: var(--fs-yellow); }}
+        .fs-risk-other {{ background: var(--fs-slate); }}
         </style>
         """,
         unsafe_allow_html=True,

@@ -39,3 +39,18 @@ def recent(severity:list[str]|None=Query(None),status:list[str]|None=Query(None)
                         created_at DESC LIMIT :limit""")
     with engine.connect() as conn: frame=pd.read_sql(q,conn,params=params)
     return {"data":records(frame)}
+
+@router.get("/trend")
+def trend(grain: str = Query("month", pattern="^(day|month)$")):
+    """Return open exceptions by creation period for executive trend reporting."""
+    period = "created_at::date" if grain == "day" else "date_trunc('month', created_at)::date"
+    q = text(f"""
+        SELECT {period} AS period, COUNT(*) AS open_exceptions
+        FROM exceptions
+        WHERE status <> 'RESOLVED'
+        GROUP BY 1
+        ORDER BY 1
+    """)
+    with engine.connect() as conn:
+        frame = pd.read_sql(q, conn)
+    return {"data": records(frame)}
