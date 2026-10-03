@@ -2,7 +2,7 @@
 
 > **Status: Phases 0–5 complete** — skeleton, PostgreSQL + synthetic data, ETL pipeline, control engine, reconciliation engine, financial analytics, ML anomaly detection.
 
-Later phases (FastAPI, Streamlit, Power BI, AI commentary, automation) build on this foundation.
+Later phases (Streamlit, Power BI, AI commentary, automation) build on this foundation.
 
 ## What exists so far
 
@@ -13,6 +13,7 @@ Later phases (FastAPI, Streamlit, Power BI, AI commentary, automation) build on 
 | 3 | Reconciliation engine: source vs ledger on ID, currency, amount, business unit and date · **9 statuses** · metrics + match rate · 3 views · cross-checked against the control engine |
 | 4 | Financial analytics: P&L, budget variance, MoM / QoQ trends, business-unit and product breakdowns, liquidity gap and funding requirement · `pnl_service` + `liquidity_service` · terminal finance report · 6 SQL views · validated against independent SQL and the raw transactions |
 | 5 | Anomaly detection: Isolation Forest over cleaned transactions · anomaly score, flag and **HIGH / MEDIUM / LOW** risk · plain-English **explanation** for every anomaly · saved model (`ml/model.pkl`) · measured against the answer key |
+| 6 | FastAPI read-only REST API over the validated service layer · P&L · liquidity · reconciliation · controls/exceptions · anomalies · filter/reference endpoints · OpenAPI docs · local Streamlit CORS · API contract tests |
 
 Verification: 22 + 23 + 38 + 48 + 53 = 184 automated checks and 86 unit tests.
 
@@ -36,6 +37,7 @@ python data/verify_phase5.py     # expect: 53/53 checks passed
 python -m pytest                 # expect: 86 passed
 python automation/finance_report.py    # read the Phase 4 analytics in the terminal
 python automation/anomaly_report.py    # read the Phase 5 anomalies (with explanations) in the terminal
+uvicorn backend.main:app --reload --port 8000    # Phase 6 API: http://localhost:8000/docs
 ```
 
 Optional:
@@ -398,6 +400,60 @@ ANOMALY_FEATURE_SET=standard    # standard | onehot | compact
 * `ml/model.pkl` is a joblib/pickle file: **only load model files you created yourself.** It is git-ignored.
 * `detected_at` is a simulated detection time (18:00 the day after the transaction), as for control exceptions.
 
+## Phase 6 — FastAPI
+
+Phase 6 exposes the validated analytics through a **read-only REST API**. The API
+does not reimplement finance calculations; it translates HTTP parameters into
+the existing service-layer functions and returns JSON-safe records.
+
+### API surface
+
+| Route | Purpose |
+|---|---|
+| `GET /health` | API + PostgreSQL health check |
+| `GET /api/v1/options` | Business units, products and currencies for dashboard filters |
+| `GET /api/v1/pnl/summary` | P&L totals, margins and budget variance |
+| `GET /api/v1/pnl/trend` | Day/month/quarter trends |
+| `GET /api/v1/pnl/breakdown` | Business-unit or product breakdown |
+| `GET /api/v1/pnl/budget-variance` | Business-unit/month budget variance |
+| `GET /api/v1/liquidity/summary` | Cash, liquidity gap, funding and coverage |
+| `GET /api/v1/liquidity/daily` | Daily liquidity position |
+| `GET /api/v1/liquidity/monthly` | Monthly liquidity roll-up |
+| `GET /api/v1/liquidity/business-units` | Liquidity by business unit |
+| `GET /api/v1/reconciliation/summary` | Match/mismatch/missing/duplicate/invalid metrics |
+| `GET /api/v1/reconciliation/by-business-unit` | Reconciliation performance by business unit |
+| `GET /api/v1/reconciliation/daily` | Daily reconciliation metrics |
+| `GET /api/v1/exceptions/summary` | Exception counts/exposure by severity |
+| `GET /api/v1/exceptions/by-category` | Exception counts/exposure by category |
+| `GET /api/v1/exceptions/recent` | Filterable exception queue |
+| `GET /api/v1/anomalies/summary` | Anomaly/risk counts and exposure |
+| `GET /api/v1/anomalies/by-business-unit` | Anomaly rates by business unit |
+| `GET /api/v1/anomalies/trend` | Daily/monthly/quarterly anomaly trend |
+| `GET /api/v1/anomalies/top` | Highest-value/score anomalies with explanations |
+| `GET /api/v1/anomalies/score-histogram` | Score distribution |
+| `GET /api/v1/anomalies/latest-run` | Latest model-run metadata and thresholds |
+
+P&L/anomaly endpoints support period, business-unit and product filters where
+applicable. Liquidity deliberately rejects product/currency filters because
+those dimensions do not apply. Invalid filters and conflicting period
+parameters return HTTP 400.
+
+### Running Phase 6
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+Open `http://localhost:8000/docs` for the interactive OpenAPI UI.
+
+Phase 6 is intentionally read-only. Pipeline execution, model retraining and
+database mutation remain explicit CLI workflows.
+
+### Validation
+
+`tests/test_api.py` checks route registration, filter translation, validation,
+JSON serialization and the OpenAPI surface without requiring PostgreSQL.
+
 ## Handy commands
 
 ```bash
@@ -428,4 +484,4 @@ python data/generate_data.py --transactions 200000 --seed 7       # different da
 
 ## Roadmap
 
-~~Phase 2 ETL + controls~~ ✅ → ~~3 Reconciliation~~ ✅ → ~~4 Financial analytics~~ ✅ → ~~5 ML anomaly detection~~ ✅ → 6 FastAPI → 7–10 Streamlit → 11 Power BI → 12 AI commentary → 13 Automation → 14–17 Testing, polish, docs.
+~~Phase 2 ETL + controls~~ ✅ → ~~3 Reconciliation~~ ✅ → ~~4 Financial analytics~~ ✅ → ~~5 ML anomaly detection~~ ✅ → ~~6 FastAPI~~ ✅ → 7–10 Streamlit → 11 Power BI → 12 AI commentary → 13 Automation → 14–17 Testing, polish, docs.
