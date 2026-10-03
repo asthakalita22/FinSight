@@ -115,8 +115,9 @@ render_kpis([
     {"label": "Revenue", "value": _money(pnl.get("revenue")), "delta": _growth("revenue_mom_pct")},
     {"label": "Net P&L", "value": _money(pnl.get("net_pnl")), "delta": _growth("net_pnl_mom_pct")},
     {"label": "Cash Position", "value": _money(liquidity.get("closing_cash")), "delta": None},
-    {"label": "Exceptions", "value": _number(exception_total), "delta": f"{critical} critical", "delta_color": "off"},
+    {"label": "Exceptions", "value": _number(exception_total), "delta": None},
 ])
+st.caption(f"{critical:,} critical", unsafe_allow_html=False)
 
 st.divider()
 

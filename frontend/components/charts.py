@@ -57,7 +57,7 @@ def line_chart(df: pd.DataFrame, x: str, y: Iterable[str] | str, title: str = ""
     for index, trace in enumerate(fig.data):
         trace.update(line={"color": CHART_SERIES[index % len(CHART_SERIES)], "width": 2.2})
         trace.update(marker={"color": CHART_SERIES[index % len(CHART_SERIES)], "size": 6})
-    fig.update_layout(showlegend=True if len(fig.data) > 1 else False)
+    fig.update_layout(showlegend=True if len(fig.data) > 1 else False, legend_title_text="")
     return _base_layout(fig)
 
 
